@@ -1,0 +1,95 @@
+{
+ "n": 28,
+ "rows": [
+  {
+   "key": null,
+   "label": "P1 baseline: BM25 (standard analyzer)",
+   "hit1": 0.0,
+   "hit5": 0.071,
+   "mrr": 0.036,
+   "precision": 0.014,
+   "chars": 1913.345
+  },
+  {
+   "key": null,
+   "label": "P1 baseline: dense",
+   "hit1": 0.714,
+   "hit5": 0.929,
+   "mrr": 0.799,
+   "precision": 0.2,
+   "chars": 10894.31
+  },
+  {
+   "key": "baseline",
+   "label": "P1 baseline: hybrid RRF (ระบบเดิม)",
+   "hit1": 0.679,
+   "hit5": 0.964,
+   "mrr": 0.796,
+   "precision": 0.207,
+   "chars": 11079.483
+  },
+  {
+   "key": null,
+   "label": "P2: BM25 (thai analyzer)",
+   "hit1": 0.679,
+   "hit5": 0.893,
+   "mrr": 0.743,
+   "precision": 0.229,
+   "chars": 3165.069
+  },
+  {
+   "key": null,
+   "label": "P2: dense",
+   "hit1": 0.786,
+   "hit5": 0.964,
+   "mrr": 0.858,
+   "precision": 0.25,
+   "chars": 3081.103
+  },
+  {
+   "key": null,
+   "label": "P2: hybrid RRF",
+   "hit1": 0.786,
+   "hit5": 1.0,
+   "mrr": 0.864,
+   "precision": 0.271,
+   "chars": 3153.379
+  },
+  {
+   "key": "improved",
+   "label": "P2: hybrid + bge-reranker",
+   "hit1": 0.821,
+   "hit5": 1.0,
+   "mrr": 0.899,
+   "precision": 0.25,
+   "chars": 3229.31
+  },
+  {
+   "key": null,
+   "label": "P2: hybrid + reranker + Gemma filter",
+   "hit1": 0.821,
+   "hit5": 1.0,
+   "mrr": 0.899,
+   "precision": 0.676,
+   "chars": 1526.241
+  },
+  {
+   "key": null,
+   "label": "P2: hybrid -> JEV-9B rerank+filter (top-20)",
+   "hit1": 0.786,
+   "hit5": 0.964,
+   "mrr": 0.843,
+   "precision": 0.366,
+   "chars": 2568.241
+  },
+  {
+   "key": "jev",
+   "label": "P2: hybrid + reranker + JEV-9B filter (ระบบใหม่)",
+   "hit1": 0.786,
+   "hit5": 1.0,
+   "mrr": 0.864,
+   "precision": 0.395,
+   "chars": 2398.793
+  }
+ ]
+}

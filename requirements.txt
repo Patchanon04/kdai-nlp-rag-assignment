@@ -1,0 +1,9 @@
+opensearch-py==3.2.0
+sentence-transformers==6.1.0
+torch
+llama-index-core==0.14.25
+openai==3.24.0
+tqdm
+# Part 1 (โค้ดเดิม) ต้องใช้ langchain รุ่นเก่า — รุ่นใหม่ไม่มี langchain.schema และ community รุ่นใหม่ import pwd ไม่ได้บน Windows
+langchain==0.0.354
+langchain-community==0.0.13

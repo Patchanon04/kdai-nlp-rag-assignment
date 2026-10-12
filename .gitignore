@@ -1,0 +1,7 @@
+.env
+.venv/
+__pycache__/
+*.bak*
+.DS_Store
+.claude/
+results/judge.log

@@ -1,0 +1,41 @@
+# docker compose -p nlp-rag up -d --build
+# ต้องมีใน .env: GEMINI_API_KEY=...  และ JEV_URL=http://<IP ของเครื่องที่รัน jev_local_server.py>:8766/score
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+    volumes:
+      - osdata:/usr/share/opensearch/data
+    ports:
+      - "127.0.0.1:9200:9200"  # ให้สคริปต์ ingest/evaluate บนเครื่องเข้าถึงได้
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      - OS_HOST=opensearch
+    volumes:
+      # ใช้ cache โมเดล bge-m3 / bge-reranker-v2-m3 ที่โหลดไว้แล้ว ไม่ต้องโหลด 4 GB ใหม่
+      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    ports:
+      - "127.0.0.1:8091:8080"
+    depends_on:
+      - opensearch
+    restart: unless-stopped
+    networks:
+      default:
+      memboy_default:
+        aliases: [nlp-rag]  # Cloudflare tunnel route: HTTP nlp-rag:8080
+
+volumes:
+  osdata:
+    name: nlp-rag-osdata
+
+networks:
+  memboy_default:
+    external: true

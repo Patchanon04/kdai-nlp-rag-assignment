@@ -1,0 +1,6 @@
+fastapi==0.142.2
+uvicorn==0.54.0
+opensearch-py==3.2.0
+sentence-transformers==6.1.0
+openai==3.24.0
+numpy
