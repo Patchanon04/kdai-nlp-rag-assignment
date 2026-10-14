@@ -18,6 +18,7 @@ from peft import PeftModel
 from accelerate.hooks import remove_hook_from_module
 from safetensors import safe_open
 from safetensors.torch import load_file
+import transformers.modeling_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # คัดลอกจาก jev_reranker/instructions.py (POINTWISE_RELEVANCE_INSTRUCTION)
@@ -39,6 +40,9 @@ tok = AutoTokenizer.from_pretrained(path)
 # (ลอง nf4 แล้ว — bitsandbytes บน ROCm พักน้ำหนักเต็มไว้ใน RAM ระหว่างโหลด จน RAM ไม่พอ)
 device_map = {"model.embed_tokens": "cpu", "lm_head": "cpu", "model.norm": 0, "model.rotary_emb": 0,
               **{f"model.layers.{i}": 0 for i in range(32)}}
+# transformers จองหน่วยความจำ GPU ทีละก้อนใหญ่ (~13 GB) ก่อนโหลด — บน ROCm/WSL การจองก้อนเดียวขนาดนั้นค้าง
+# ปิดไว้ให้จองทีละ tensor แทน (โหลดช้าลงนิดหน่อย)
+transformers.modeling_utils.caching_allocator_warmup = lambda *a, **k: None
 base = AutoModelForCausalLM.from_pretrained(path, dtype=torch.bfloat16, device_map=device_map)
 backbone = PeftModel.from_pretrained(base, path, subfolder="adapter",
                                      offload_dir="/tmp/jev_offload").get_base_model().model
