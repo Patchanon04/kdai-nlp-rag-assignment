@@ -149,6 +149,26 @@ def api_compare(req: Ask):
     return compare(q, evidence_for(q))[0]
 
 
+@app.post("/api/chat")
+def api_chat(req: Ask):
+    """โหมดแชท: คำตอบ + แหล่งอ้างอิงที่ระบบนั้นส่งให้ LLM (ใช้ cache/คิวเดียวกับหน้าเทียบ)"""
+    q = req.q.strip()
+    row, _, kept = compare(q, evidence_for(q))
+    system, note = req.system, ""
+    if system == "jev" and kept is None:
+        system, note = "improved", "JEV-9B ยังไม่ได้เปิด — ตอบด้วยระบบ ② แทน"
+    if system == "jev":
+        scored = sorted(zip(row["jev"], row["improved"]), key=lambda x: -x[0])
+        sources = [dict(c, jev=p) for p, c in scored if p >= 0.2]
+    else:
+        sources = row[system]
+    try:
+        text = answer(q, system)
+    except RuntimeError as e:  # ไม่มี GEMINI_API_KEY
+        text = str(e)
+    return {"answer": text, "system": system, "note": note, "sources": sources}
+
+
 @app.post("/api/answer")
 def api_answer(req: Ask):
     try:

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const SYSTEMS = [
   { key: "baseline", num: "①", name: "ระบบเดิม", sub: "โค้ดตามสไลด์ Hands-on 1–2", tags: ["standard analyzer", "MarkdownNodeParser", "BM25 + kNN + RRF"] },
@@ -18,7 +18,7 @@ const fmt = (n) => n.toLocaleString("th-TH");
 function useQueue(active) {
   const [w, setW] = useState(null);
   useEffect(() => {
-    if (!active) return setW(null);
+    if (!active) { setW(null); return; }  // effect ต้องคืน cleanup function หรือไม่คืนอะไรเลย
     const t = setInterval(() => fetch("./api/status").then((r) => r.json()).then(setW).catch(() => {}), 1500);
     return () => clearInterval(t);
   }, [active]);
@@ -39,6 +39,7 @@ export default function App() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [view, setView] = useState("compare");
   const queue = useQueue(busy);
 
   useEffect(() => {
@@ -94,6 +95,12 @@ export default function App() {
         </p>
       </header>
 
+      <nav className="tabs">
+        <button className={view === "compare" ? "on" : ""} onClick={() => setView("compare")}>เทียบ 3 ระบบ</button>
+        <button className={view === "chat" ? "on" : ""} onClick={() => setView("chat")}>แชท</button>
+      </nav>
+
+      {view === "chat" ? <Chat live={live} samples={data} /> : <>
       {metrics && <Scoreboard metrics={metrics} />}
 
       <section className="asker">
@@ -133,12 +140,114 @@ export default function App() {
       </section>
 
       {row && <Dossier key={row.question} row={row} live={live} />}
+      </>}
 
       <footer className="foot">
         ระบบเดิม: <a href="https://github.com/aekanun2020/2025-authenticRAG">aekanun2020/2025-authenticRAG</a> ·
         Jev: <a href="https://huggingface.co/autotrust/JEV-9B">autotrust/JEV-9B</a> (open-weight student ของ TypeSafe Jev) ·
         แนวคิด: <a href="https://huggingface.co/blog/hotchpotch/introducing-jev-reranker">jev-reranker</a>
       </footer>
+    </div>
+  );
+}
+
+// แชท: แต่ละข้อความค้นแยกกัน (ไม่จำบริบทคำถามก่อนหน้า) — ใช้ cache/คิวเดียวกับหน้าเทียบ
+function Chat({ live, samples }) {
+  const [sys, setSys] = useState("jev");
+  const [msgs, setMsgs] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const queue = useQueue(busy);
+  const end = useRef(null);
+  // ต้องมีปีกกา: Chrome รุ่นใหม่ให้ scrollIntoView คืน Promise — ถ้า return ออกไป React จะเรียกมันเป็น cleanup แล้วพัง
+  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
+  const picks = useMemo(() => samples.filter((q) => ["q09", "q17", "q27", "q29"].includes(q.id)), [samples]);
+
+  async function send(text, system = sys) {
+    const q = (text ?? draft).trim();
+    if (!q || busy) return;
+    setDraft("");
+    setMsgs((m) => [...m, { role: "user", text: q, system }]);
+    setBusy(true);
+    try {
+      const r = await post("./api/chat", { q, system });
+      setMsgs((m) => [...m, { role: "bot", q, text: r.answer, system: r.system, note: r.note, sources: r.sources }]);
+    } catch {
+      setMsgs((m) => [...m, { role: "bot", q, text: "เรียกระบบไม่สำเร็จ — ลองอีกครั้ง", system, sources: [] }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!live) return <section className="chat"><p className="chat-off">แชทใช้ได้เฉพาะตอนเปิด server (โหมดสด)</p></section>;
+  return (
+    <section className="chat">
+      <div className="chat-sys">
+        <span>คุยกับ</span>
+        {SYSTEMS.map((s) => (
+          <button key={s.key} className={`sys-${s.key} ${sys === s.key ? "on" : ""}`} onClick={() => setSys(s.key)}>
+            {s.num} {s.name}
+          </button>
+        ))}
+      </div>
+      <div className="chat-log">
+        {msgs.length === 0 && (
+          <div className="chat-empty">
+            <p>ถามเรื่อง <b>หัดเยอรมัน · อหิวาตกโรค · ต้อกระจก · กรดไหลย้อน</b> — ระบบจะค้นบทความแล้วให้ Gemma ตอบพร้อมแหล่งอ้างอิง</p>
+            <div className="chat-picks">{picks.map((q) => <button key={q.id} className="chip" onClick={() => send(q.question)}>{q.question}</button>)}</div>
+          </div>
+        )}
+        {msgs.map((m, i) => m.role === "user" ? (
+          <div key={i} className="msg user"><div className="bubble">{m.text}</div></div>
+        ) : (
+          <BotMsg key={i} m={m} busy={busy} onAsk={(s) => send(m.q, s)} />
+        ))}
+        {busy && (
+          <div className="msg bot"><div className="bubble answer-wait">
+            <span /><span /><span /> กำลังค้นเอกสารแล้วให้ AI อ่าน… (~30-60 วินาที)
+            {(queue?.search > 0 || queue?.answer > 0) && ` · รอคิวอยู่ ${queue.search + queue.answer}`}
+          </div></div>
+        )}
+        <div ref={end} />
+      </div>
+      <form className="chat-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={300} placeholder="พิมพ์คำถาม…" disabled={busy} />
+        <button disabled={busy || !draft.trim()}>ส่ง</button>
+      </form>
+      <p className="chat-hint">แต่ละข้อความค้นแยกกัน ระบบไม่จำคำถามก่อนหน้า — ถามให้ครบในประโยคเดียว เช่น "ต้อกระจกรักษายังไง" แทน "แล้วรักษายังไง"</p>
+    </section>
+  );
+}
+
+function BotMsg({ m, busy, onAsk }) {
+  const s = SYSTEMS.find((x) => x.key === m.system);
+  const chars = m.sources.reduce((a, c) => a + c.chars, 0);
+  return (
+    <div className={`msg bot sys-${m.system}`}>
+      <div className="bubble">
+        <div className="msg-sys">{s.num} {s.name}</div>
+        {m.note && <div className="msg-note">{m.note}</div>}
+        <div className="answer-body">{renderMd(m.text)}</div>
+        {m.sources.length > 0 && (
+          <details className="msg-src">
+            <summary>แหล่งอ้างอิง {m.sources.length} ท่อน · {fmt(chars)} ตัวอักษรที่ส่งให้ AI</summary>
+            <ol>
+              {m.sources.map((c, i) => (
+                <li key={i}>
+                  <b>{c.source}</b>{c.crumb && ` › ${c.crumb.split(" > ").slice(1).join(" › ")}`}
+                  {c.jev !== undefined && <code> P={c.jev.toFixed(2)}</code>}
+                  <p>{c.text.slice(0, 220)}{c.text.length > 220 && " …"}</p>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+        <div className="msg-again">
+          ถามข้อนี้กับ{SYSTEMS.filter((x) => x.key !== m.system).map((x) => (
+            <button key={x.key} disabled={busy} onClick={() => onAsk(x.key)}>{x.num} {x.name}</button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
