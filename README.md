@@ -189,7 +189,7 @@ Qwen3.5 ที่เป็นฐานเท่านั้น ข้อดี�
 - ตัวอักษรที่แต่ละระบบส่งให้ LLM และคำตอบของ LLM ทั้ง 3 ระบบเรียงเทียบกัน
 - ตัวเลขผลวัดรวมด้านบน + คำถามตัวอย่าง 29 ข้อ (ผลคำนวณไว้แล้ว เปิดได้ทันที)
 - **โหมดสด** — พิมพ์คำถามใหม่ได้ (~3 วินาทีต่อคำถามเมื่อ reranker และ Jev อยู่บน GPU), มีคิวเมื่อหลายคนถามพร้อมกัน
-  (ค้นทีละคำถาม, LLM ตอบพร้อมกันได้ 2 เพื่อไม่ชน rate limit), คำถามซ้ำตอบจาก cache, ปุ่ม QR ให้ผู้ชมสแกนเปิดในมือถือ
+  (ค้นทีละคำถาม, LLM ตอบพร้อมกันได้ 2 เพื่อไม่ชน rate limit), คำถามซ้ำตอบจาก cache, ใช้บนมือถือได้
 - ถ้า JEV-9B ไม่ได้เปิด คอลัมน์ ③ ขึ้นว่ายังไม่เชื่อมต่อ ส่วนอื่นยังใช้ได้; ถ้า GPU reranker ไม่ได้เปิด จะใช้ CPU แทน (~25 วินาที)
 
 reranker บน GPU (fp16) ให้ผลเหมือนบน CPU (fp32) ทุกอันดับ — รันวัดผลชุดเต็มซ้ำด้วย GPU แล้ว ตัวเลขทั้ง 10 แบบและอันดับรายข้อตรงกันทุกบรรทัด
@@ -209,35 +209,50 @@ reranker บน GPU (fp16) ให้ผลเหมือนบน CPU (fp32) �
 
 ## วิธีรัน
 
+### เปิด demo บนเครื่องไหนก็ได้ — Docker อย่างเดียว
+
 ```bash
-# 0. ไฟล์ .env ที่ root (ห้าม commit):
-#      GEMINI_API_KEY=...                                  # จำเป็น
-#      JEV_URL=http://<เครื่องที่รัน Jev>:8766/score         # ขั้น 5 (จาก container ใน WSL ใช้ IP ของ eth0 ใน WSL)
-#      RERANK_URL=http://<เครื่องที่รัน Jev>:8766/rerank     # ไม่ตั้ง = ใช้ reranker บน CPU
-#      HF_CACHE=C:/Users/<you>/.cache/huggingface          # docker ใช้ cache โมเดลเดิม ไม่ต้องโหลดใหม่
+git clone https://github.com/Patchanon04/kdai-nlp-rag-assignment && cd kdai-nlp-rag-assignment
+docker compose up -d                  # ไม่มี GPU: ระบบ ① ② ครบ, ③ แสดงผลที่บันทึกไว้ของ 29 คำถามตัวอย่าง
+docker compose --profile gpu up -d    # มี NVIDIA ≥ 16 GB: เพิ่ม JEV-9B + reranker บน GPU (คำถามใหม่ ~3 วินาที)
+```
 
-# 1. OpenSearch (volume ถาวร)
-docker compose -p nlp-rag up -d opensearch
+เปิด http://localhost:8091 — ครั้งแรกใช้เวลาสักพัก: build image, service `init` สร้าง index ทั้งสองระบบ
+และโหลด bge-m3 + bge-reranker (~4 GB) ลง volume (โปรไฟล์ gpu โหลด JEV-9B อีก ~18 GB)
 
-# 2. Python 3.10+ และ dependencies
-pip install -r requirements.txt
+- **ไม่ต้องมี API key ก็เปิดได้** — `init` สร้าง index จาก context ที่ cache ไว้ใน repo (`results/llm_cache.json`,
+  `results/improved_contexts.json`) จึงได้ index เดียวกับที่ใช้วัดผลโดยไม่เรียก LLM
+- ถ้าอยากให้ปุ่ม "ให้ AI ตอบ" ทำงาน: สร้างไฟล์ `.env` ที่ root ใส่ `GEMINI_API_KEY=...` (ไม่มี key จะขึ้นข้อความบอก)
+- เปลี่ยน port ได้ด้วย `APP_PORT=... OS_PORT=... docker compose up -d`
+- RAM แนะนำ ≥ 12 GB สำหรับ Docker (OpenSearch + bge-m3 + reranker บน CPU)
+- ⚠ โปรไฟล์ `gpu` ([`Dockerfile.jev`](Dockerfile.jev)) ยังไม่ได้ทดสอบบนการ์ด NVIDIA จริง — Docker ใช้ GPU ได้เฉพาะ NVIDIA
+  ส่วนเครื่องที่ทำงานนี้เป็น AMD จึงรัน JEV-9B นอก Docker ด้วย ROCm ใน WSL (ด้านล่าง) ด้วยโค้ดชุดเดียวกัน
 
-# 3. Part 1 — นำเข้า แล้วถาม 5 ข้อของครู
+### เครื่องที่ทำงานนี้ (AMD RX 7800 XT + WSL)
+
+ดับเบิลคลิก [`demo/start.cmd`](demo/start.cmd) — เปิด Docker (แก้ปัญหา socket ค้างของ Docker Desktop ให้ด้วย),
+สตาร์ท JEV-9B + reranker บน GPU ใน WSL ([`demo/run_jev.sh`](demo/run_jev.sh)), อัปเดต IP ของ WSL ใน `.env`, เปิด compose แล้วเปิดเบราว์เซอร์
+(ใน `.env` ตั้ง `HF_CACHE=` ชี้ cache โมเดลบนเครื่องเพื่อไม่ต้องโหลดซ้ำ; ปิดโปรแกรมอื่นที่ใช้ GPU ก่อน)
+
+### รันแต่ละส่วนเอง (ทำซ้ำการทดลอง)
+
+```bash
+pip install -r requirements.txt                 # Python 3.10+
+docker compose up -d opensearch
+export GEMINI_API_KEY=...  LLM_CACHE=results/llm_cache.json   # LLM_CACHE: รันซ้ำได้ผลเดิมโดยไม่เรียก API
+# Part 1 — นำเข้า แล้วถาม 5 ข้อของครู
 cd part1_baseline && python authenticRAG.py && python onlysearchAuthenticRAG.py && cd ..
-# 4. Part 2 — นำเข้า (context cache อยู่ใน results/improved_contexts.json)
+# Part 2 — นำเข้า
 cd part2_improved && python improvedRAG.py ingest && cd ..
-# 5. JEV-9B + bge-reranker บน GPU (Linux/WSL, การ์ด 16 GB ต้องว่างเกือบทั้งใบ — ปิดโปรแกรมอื่นที่ใช้ GPU)
+# JEV-9B + reranker บน GPU (Linux/WSL)
 hf download autotrust/JEV-9B --local-dir ~/models/JEV-9B --include "*.json" "*.jinja" "model-*.safetensors" "head.safetensors" "adapter/*"
 hf download BAAI/bge-reranker-v2-m3 --local-dir ~/models/bge-reranker-v2-m3
 pip install flash-linear-attention einops   # ถ้าไม่มีจะช้าลง ~50 เท่า
 RERANKER=~/models/bge-reranker-v2-m3 python part2_improved/jev_local_server.py ~/models/JEV-9B   # :8766 /score + /rerank
-# 6. วัดผล + สร้างข้อมูล demo + ให้คะแนนคำตอบ (LLM_CACHE ทำให้รันซ้ำได้ผลเดิมโดยไม่เรียก API)
-export LLM_CACHE=results/llm_cache.json
+# วัดผล (ตั้ง RERANK_URL=http://localhost:8766/rerank เพื่อใช้ reranker บน GPU — ผลเท่ากับ CPU ทุกอันดับ)
 python eval/evaluate.py
-python demo/server.py build q25,q26,q27,q28,q29,q09,q14,q17,q22
+python demo/server.py build q25,q26,q27,q28,q29,q09,q14,q17,q22   # ข้อมูลหน้า demo
 python eval/evaluate.py judge
-# 7. Demo (React + FastAPI) เป็น service — image build React เอง (demo/web) + ใช้ demo/requirements.txt
-docker compose -p nlp-rag up -d --build app      # http://localhost:8091
 ```
 
 ปัญหาที่เจอตอนรัน JEV-9B บน ROCm/WSL และวิธีแก้ (อยู่ในโค้ดแล้ว): transformers จองหน่วยความจำ GPU ก้อนเดียว ~13 GB ก่อนโหลดแล้วค้าง
