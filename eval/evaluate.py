@@ -9,6 +9,7 @@ chunk ถือว่า "ถูก" ถ้ามีข้อความ eviden
 import contextlib
 import io
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -39,7 +40,8 @@ def retrieval():
     from improvedRAG import ImprovedRAG
     from onlysearchAuthenticRAG import AuthenticSearchRAG
 
-    base, imp = AuthenticSearchRAG(), ImprovedRAG()
+    host = os.environ.get("OS_HOST", "localhost")  # ใน container ของ demo = "opensearch"
+    base, imp = AuthenticSearchRAG(opensearch_host=host), ImprovedRAG(host=host)
     systems = {
         "P1 baseline: BM25 (standard analyzer)": lambda q: [s["content"] for _, _, s in base.sparse_search(q, K)],
         "P1 baseline: dense": lambda q: [s["content"] for _, _, s in base.dense_search(q, K)],
