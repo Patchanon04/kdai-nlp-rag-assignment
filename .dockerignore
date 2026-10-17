@@ -1,8 +1,11 @@
 .env
 .venv
 .git
+.claude
 **/node_modules
 demo/web/dist
-results
+results/*
+!results/llm_cache.json
+!results/improved_contexts.json
 docs_original
 **/__pycache__

@@ -1,5 +1,8 @@
-# docker compose -p nlp-rag up -d --build
-# ต้องมีใน .env: GEMINI_API_KEY=...  และ JEV_URL=http://<IP ของเครื่องที่รัน jev_local_server.py>:8766/score
+# ทุกอย่างบน Docker:
+#   docker compose up -d                 # ไม่มี GPU: ระบบ ① ② ครบ (reranker บน CPU), ③ ใช้ผลที่บันทึกไว้
+#   docker compose --profile gpu up -d   # มี NVIDIA ≥ 16 GB: เพิ่ม JEV-9B + reranker บน GPU (โหลดโมเดล ~20 GB ครั้งแรก)
+# เปิด http://localhost:8091 — ครั้งแรกรอ init สร้าง index + โหลด bge-m3/reranker (~4 GB) ก่อน
+# .env (ไม่บังคับ): GEMINI_API_KEY=... ถ้าอยากให้ปุ่ม "ให้ AI ตอบ" ทำงาน
 services:
   opensearch:
     image: opensearchproject/opensearch:2.19.1
@@ -11,31 +14,52 @@ services:
     volumes:
       - osdata:/usr/share/opensearch/data
     ports:
-      - "127.0.0.1:9200:9200"  # ให้สคริปต์ ingest/evaluate บนเครื่องเข้าถึงได้
+      - "127.0.0.1:${OS_PORT:-9200}:9200"  # ให้สคริปต์ ingest/evaluate บนเครื่องเข้าถึงได้
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf localhost:9200/_cluster/health || exit 1"]
+      interval: 5s
+      retries: 60
     restart: unless-stopped
 
-  app:
+  init:  # สร้าง index ทั้งสองระบบจาก context ที่ cache ไว้ (ไม่เรียก LLM) — ข้ามถ้ามีแล้ว
     build: .
-    env_file: .env
+    command: ["python", "demo/init.py"]
+    env_file: [{path: .env, required: false}]
     environment:
       - OS_HOST=opensearch
     volumes:
-      # ใช้ cache โมเดล bge-m3 / bge-reranker-v2-m3 ที่โหลดไว้แล้ว ไม่ต้องโหลด 4 GB ใหม่
-      - ${HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
-    ports:
-      - "127.0.0.1:8091:8080"
+      - ${HF_CACHE:-hf}:/hf
     depends_on:
-      - opensearch
+      opensearch: {condition: service_healthy}
+
+  app:
+    build: .
+    env_file: [{path: .env, required: false}]
+    environment:
+      - OS_HOST=opensearch
+      # profile gpu: service jev ในเครือข่ายเดียวกัน; ไม่มี jev = คอลัมน์ ③ ขึ้นว่ายังไม่เชื่อมต่อ, reranker ใช้ CPU
+      - JEV_URL=${JEV_URL:-http://jev:8766/score}
+      - RERANK_URL=${RERANK_URL:-http://jev:8766/rerank}
+    volumes:
+      - ${HF_CACHE:-hf}:/hf
+    ports:
+      - "127.0.0.1:${APP_PORT:-8091}:8080"
+    depends_on:
+      init: {condition: service_completed_successfully}
     restart: unless-stopped
-    networks:
-      default:
-      memboy_default:
-        aliases: [nlp-rag]  # Cloudflare tunnel route: HTTP nlp-rag:8080
+
+  jev:
+    profiles: [gpu]
+    build: {context: ., dockerfile: Dockerfile.jev}
+    volumes:
+      - jevmodels:/models
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+    restart: unless-stopped
 
 volumes:
   osdata:
-    name: nlp-rag-osdata
-
-networks:
-  memboy_default:
-    external: true
+  hf:
+  jevmodels:

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import QRCode from "qrcode";
 
 const SYSTEMS = [
   { key: "baseline", num: "①", name: "ระบบเดิม", sub: "โค้ดตามสไลด์ Hands-on 1–2", tags: ["standard analyzer", "MarkdownNodeParser", "BM25 + kNN + RRF"] },
@@ -13,7 +12,6 @@ const TYPES = {
   keyword: "คีย์เวิร์ดตรงตัว",
 };
 const MAX_CHARS = 8404; // chunk ที่ยาวที่สุดของระบบเดิม
-const PUBLIC_URL = "https://nlp-rag.ohmpire.dev";
 const fmt = (n) => n.toLocaleString("th-TH");
 
 // คิวบน server (ค้นทีละคำถาม, AI ตอบได้ทีละ 2) — poll ระหว่างรอ เพื่อบอกผู้ใช้ว่ามีคนรอก่อนหน้ากี่คน
@@ -41,7 +39,6 @@ export default function App() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [qr, setQr] = useState(false);
   const queue = useQueue(busy);
 
   useEffect(() => {
@@ -82,7 +79,6 @@ export default function App() {
         <div className="mast-meta">
           <span>KDAI · Natural Language Processing</span>
           <span>Assignment · 4 ต.ค. 2026</span>
-          {live && <button className="qr-btn" onClick={() => setQr(true)}>QR ให้เพื่อนสแกน</button>}
           <span className={`pill ${live ? "on" : ""}`}>
             <i /> {live ? "โหมดสด — ถามอะไรก็ได้" : "ผลที่บันทึกไว้"}
           </span>
@@ -137,27 +133,12 @@ export default function App() {
       </section>
 
       {row && <Dossier key={row.question} row={row} live={live} />}
-      {qr && <QrOverlay onClose={() => setQr(false)} />}
 
       <footer className="foot">
         ระบบเดิม: <a href="https://github.com/aekanun2020/2025-authenticRAG">aekanun2020/2025-authenticRAG</a> ·
         Jev: <a href="https://huggingface.co/autotrust/JEV-9B">autotrust/JEV-9B</a> (open-weight student ของ TypeSafe Jev) ·
         แนวคิด: <a href="https://huggingface.co/blog/hotchpotch/introducing-jev-reranker">jev-reranker</a>
       </footer>
-    </div>
-  );
-}
-
-function QrOverlay({ onClose }) {
-  const [src, setSrc] = useState("");
-  useEffect(() => { QRCode.toDataURL(PUBLIC_URL, { width: 640, margin: 1 }).then(setSrc); }, []);
-  return (
-    <div className="qr-overlay" onClick={onClose}>
-      <div className="qr-card">
-        {src && <img src={src} alt={`QR code ${PUBLIC_URL}`} />}
-        <p>สแกนแล้วลองถามเองได้เลย</p>
-        <code>{PUBLIC_URL.replace("https://", "")}</code>
-      </div>
     </div>
   );
 }

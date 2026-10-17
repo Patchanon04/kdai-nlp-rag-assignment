@@ -1,0 +1,12 @@
+# JEV-9B + bge-reranker-v2-m3 บน GPU NVIDIA (≥ 16 GB) — ใช้กับ `docker compose --profile gpu up -d`
+# โหลดโมเดล ~20 GB ลง volume ตอนเปิดครั้งแรก (ครั้งต่อไปใช้ของเดิม)
+# ⚠ ยังไม่ได้ทดสอบบนการ์ด NVIDIA จริง — โค้ดเดียวกันทดสอบแล้วบน AMD RX 7800 XT ผ่าน ROCm (นอก Docker)
+FROM pytorch/pytorch:2.14.1-cuda12.6-cudnn9-runtime
+WORKDIR /app
+RUN pip install --no-cache-dir "transformers==5.14.1" "peft==0.20.0" accelerate safetensors \
+    "huggingface_hub[cli]" flash-linear-attention einops
+COPY part2_improved/jev_local_server.py part2_improved/
+COPY demo/jev_entrypoint.sh demo/
+ENV HF_HUB_DISABLE_XET=1 HF_DEACTIVATE_ASYNC_LOAD=1 RERANKER=/models/bge-reranker-v2-m3 PYTHONUNBUFFERED=1
+EXPOSE 8766
+CMD ["bash", "demo/jev_entrypoint.sh"]

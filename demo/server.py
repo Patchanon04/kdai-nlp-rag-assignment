@@ -151,7 +151,10 @@ def api_compare(req: Ask):
 
 @app.post("/api/answer")
 def api_answer(req: Ask):
-    return {"answer": answer(req.q.strip(), req.system)}
+    try:
+        return {"answer": answer(req.q.strip(), req.system)}
+    except RuntimeError as e:  # ยังไม่ได้ใส่ GEMINI_API_KEY — บอกตรง ๆ แทน error 500
+        return {"answer": str(e)}
 
 
 if __name__ == "__main__":

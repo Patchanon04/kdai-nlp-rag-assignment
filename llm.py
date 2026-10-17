@@ -20,8 +20,17 @@ if _env.exists():
             os.environ.setdefault(k.strip(), v.strip())
 
 MODEL = os.environ.get("LLM_MODEL", "gemma-4-31b-it")
-_client = OpenAI(api_key=os.environ["GEMINI_API_KEY"],
-                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+_client = None  # สร้างตอนเรียกจริง — ไม่มี key ก็ยังค้น/ingest จาก cache ได้
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        if not os.environ.get("GEMINI_API_KEY"):
+            raise RuntimeError("ยังไม่ได้ตั้ง GEMINI_API_KEY (ใส่ในไฟล์ .env) — ต้องใช้ตอนให้ LLM ตอบ")
+        _client = OpenAI(api_key=os.environ["GEMINI_API_KEY"],
+                         base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    return _client
 
 
 # LLM_CACHE=path.json -> เก็บคำตอบไว้ รันซ้ำได้ผลเดิมโดยไม่เรียก API (ใช้ตอน ingest / วัดผล)
@@ -47,7 +56,7 @@ def _chat(prompt, max_tokens, temperature, system):
     # จึงต้องเผื่อ token ให้ส่วนคิด แล้วตัดส่วนคิดทิ้ง เหลือเฉพาะคำตอบ
     for attempt in range(15):
         try:
-            r = _client.chat.completions.create(
+            r = _get_client().chat.completions.create(
                 model=MODEL,
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
                 max_tokens=max_tokens + 4000, temperature=temperature)
