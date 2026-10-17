@@ -3,9 +3,14 @@
 $ErrorActionPreference = 'Stop'
 $root   = Split-Path $PSScriptRoot -Parent
 $docker = 'C:\Program Files\Docker\Docker\resources\bin\docker.exe'
+$env:PATH = "$(Split-Path $docker);$env:PATH"  # docker ต้องเรียก docker-credential-desktop ตอน build/pull
 $distro = 'Ubuntu'
 
-function EngineUp { & $docker info *> $null; return $LASTEXITCODE -eq 0 }
+function EngineUp {  # docker info เขียน error ลง stderr ตอน engine ยังไม่พร้อม — อย่าให้ PS 5.1 ถือเป็น exception
+    $ErrorActionPreference = 'Continue'
+    & $docker info *> $null
+    return $LASTEXITCODE -eq 0
+}
 function WaitEngine($tries) { for ($i = 0; $i -lt $tries; $i++) { if (EngineUp) { return $true }; Start-Sleep 6 }; return $false }
 function Wsl([string]$cmd) { (& wsl.exe -d $distro -- bash -c $cmd) -replace "`0", '' }
 
@@ -50,8 +55,12 @@ Write-Host "[3/4] WSL IP = $ip -> .env"
 
 # 4) OpenSearch + app (compose สร้าง app ใหม่เองถ้าค่าใน .env เปลี่ยน)
 Push-Location $root
-& $docker compose -p nlp-rag up -d 2>&1 | Out-Host
+$ErrorActionPreference = 'Continue'  # compose เขียน progress ลง stderr — PS 5.1 จะถือเป็น error ถ้ายังเป็น Stop
+& $docker compose -p nlp-rag up -d --build
+$code = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
 Pop-Location
+if ($code -ne 0) { throw "docker compose up ล้มเหลว (exit $code)" }
 Write-Host '[4/4] รอ app และ JEV-9B พร้อม...'
 for ($i = 0; $i -lt 60; $i++) {
     try { Invoke-RestMethod http://localhost:8091/api/health -TimeoutSec 3 | Out-Null; break } catch { Start-Sleep 5 }
