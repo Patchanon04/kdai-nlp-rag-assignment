@@ -18,9 +18,11 @@ Assignment แทน quiz (KDAI 05177141 Natural Language Processing, Part 4) �
 
 ## ผลสรุป
 
-**Demo เทียบ 3 ระบบแบบเห็นกับตา:** สด → https://nlp-rag.ohmpire.dev · ผลที่บันทึกไว้ (GitHub Pages) → ลิงก์ใน About ของ repo
+**Demo เทียบ 3 ระบบแบบเห็นกับตา:** ดู [หัวข้อ Demo](#demo-เทียบ-3-ระบบ) ด้านล่าง
 
-วัดบน 28 คำถามที่รู้ตำแหน่งคำตอบในเอกสาร ([`eval/questions.json`](eval/questions.json)), top-5 — รายละเอียดทุกแบบ + รายข้อใน [`results/retrieval_metrics.md`](results/retrieval_metrics.md)
+วัดบน 29 คำถาม ([`eval/questions.json`](eval/questions.json)) — 28 ข้อรู้ตำแหน่งคำตอบในเอกสาร ใช้คำนวณตัวเลขด้านล่าง
+ส่วนข้อ 29 (ข้อ 5 ของครู) เอกสารไม่มีคำตอบ จึงใช้ดูว่าระบบยอมรับว่า "ไม่มีข้อมูล" หรือไม่ · top-5 —
+รายละเอียดทุกแบบ + รายข้อใน [`results/retrieval_metrics.md`](results/retrieval_metrics.md)
 
 | ระบบ | Hit@1 | Hit@5 | MRR@5 | Precision@5 | ตัวอักษรที่ส่งให้ LLM |
 |---|---|---|---|---|---|
@@ -178,6 +180,20 @@ Qwen3.5 ที่เป็นฐานเท่านั้น ข้อดี�
 
 ---
 
+## Demo เทียบ 3 ระบบ
+
+หน้าเว็บ ([`demo/`](demo/), React + FastAPI) วางคำถามเดียวกันให้ 3 ระบบค้นพร้อมกัน แล้วโชว์ข้างกัน:
+
+- top-5 ของแต่ละระบบ — chunk ที่มีคำตอบจริงขึ้นสีเขียวและไฮไลต์ประโยคคำตอบ, แถบความยาวแต่ละ chunk
+  (chunk ยาวของระบบเดิมเห็นชัดว่าคำตอบจมอยู่ตรงไหน), คอลัมน์ ③ แสดงคะแนน Jev และประทับ "ตัดทิ้ง" ใน chunk ที่ไม่ผ่าน
+- ตัวอักษรที่แต่ละระบบส่งให้ LLM และคำตอบของ LLM ทั้ง 3 ระบบเรียงเทียบกัน
+- ตัวเลขผลวัดรวมด้านบน + คำถามตัวอย่าง 29 ข้อ (ผลคำนวณไว้แล้ว เปิดได้ทันที)
+- **โหมดสด** — พิมพ์คำถามใหม่ได้ (~3 วินาทีต่อคำถามเมื่อ reranker และ Jev อยู่บน GPU), มีคิวเมื่อหลายคนถามพร้อมกัน
+  (ค้นทีละคำถาม, LLM ตอบพร้อมกันได้ 2 เพื่อไม่ชน rate limit), คำถามซ้ำตอบจาก cache, ปุ่ม QR ให้ผู้ชมสแกนเปิดในมือถือ
+- ถ้า JEV-9B ไม่ได้เปิด คอลัมน์ ③ ขึ้นว่ายังไม่เชื่อมต่อ ส่วนอื่นยังใช้ได้; ถ้า GPU reranker ไม่ได้เปิด จะใช้ CPU แทน (~25 วินาที)
+
+reranker บน GPU (fp16) ให้ผลเหมือนบน CPU (fp32) ทุกอันดับ — รันวัดผลชุดเต็มซ้ำด้วย GPU แล้ว ตัวเลขทั้ง 10 แบบและอันดับรายข้อตรงกันทุกบรรทัด
+
 ## วิธีวัดผล
 
 [`eval/questions.json`](eval/questions.json): 29 คำถาม — 24 ข้อสร้างจากเอกสาร (ไฟล์ละ 6: keyword 2, paraphrase 2, specific 2) + 5 ข้อของครู
@@ -194,7 +210,11 @@ Qwen3.5 ที่เป็นฐานเท่านั้น ข้อดี�
 ## วิธีรัน
 
 ```bash
-# 0. ไฟล์ .env ที่ root:  GEMINI_API_KEY=...   (และ JEV_URL=..., HF_CACHE=... ถ้าใช้ docker)
+# 0. ไฟล์ .env ที่ root (ห้าม commit):
+#      GEMINI_API_KEY=...                                  # จำเป็น
+#      JEV_URL=http://<เครื่องที่รัน Jev>:8766/score         # ขั้น 5 (จาก container ใน WSL ใช้ IP ของ eth0 ใน WSL)
+#      RERANK_URL=http://<เครื่องที่รัน Jev>:8766/rerank     # ไม่ตั้ง = ใช้ reranker บน CPU
+#      HF_CACHE=C:/Users/<you>/.cache/huggingface          # docker ใช้ cache โมเดลเดิม ไม่ต้องโหลดใหม่
 
 # 1. OpenSearch (volume ถาวร)
 docker compose -p nlp-rag up -d opensearch
@@ -206,17 +226,22 @@ pip install -r requirements.txt
 cd part1_baseline && python authenticRAG.py && python onlysearchAuthenticRAG.py && cd ..
 # 4. Part 2 — นำเข้า (context cache อยู่ใน results/improved_contexts.json)
 cd part2_improved && python improvedRAG.py ingest && cd ..
-# 5. JEV-9B (เครื่องที่มี GPU ≥ 16 GB, Linux/WSL)
+# 5. JEV-9B + bge-reranker บน GPU (Linux/WSL, การ์ด 16 GB ต้องว่างเกือบทั้งใบ — ปิดโปรแกรมอื่นที่ใช้ GPU)
 hf download autotrust/JEV-9B --local-dir ~/models/JEV-9B --include "*.json" "*.jinja" "model-*.safetensors" "head.safetensors" "adapter/*"
+hf download BAAI/bge-reranker-v2-m3 --local-dir ~/models/bge-reranker-v2-m3
 pip install flash-linear-attention einops   # ถ้าไม่มีจะช้าลง ~50 เท่า
-python part2_improved/jev_local_server.py ~/models/JEV-9B   # ฟังที่ :8766
+RERANKER=~/models/bge-reranker-v2-m3 python part2_improved/jev_local_server.py ~/models/JEV-9B   # :8766 /score + /rerank
 # 6. วัดผล + สร้างข้อมูล demo + ให้คะแนนคำตอบ (LLM_CACHE ทำให้รันซ้ำได้ผลเดิมโดยไม่เรียก API)
 export LLM_CACHE=results/llm_cache.json
 python eval/evaluate.py
 python demo/server.py build q25,q26,q27,q28,q29,q09,q14,q17,q22
 python eval/evaluate.py judge
-# 7. Demo (React + FastAPI) เป็น service
+# 7. Demo (React + FastAPI) เป็น service — image build React เอง (demo/web) + ใช้ demo/requirements.txt
 docker compose -p nlp-rag up -d --build app      # http://localhost:8091
 ```
+
+ปัญหาที่เจอตอนรัน JEV-9B บน ROCm/WSL และวิธีแก้ (อยู่ในโค้ดแล้ว): transformers จองหน่วยความจำ GPU ก้อนเดียว ~13 GB ก่อนโหลดแล้วค้าง
+→ ปิด `caching_allocator_warmup`; reranker ทีละ 20 คู่ OOM เมื่อรันคู่กับ JEV-9B → แบ่งทีละ 5 คู่ ความยาวคงที่ 512 token
+(ROCm คอมไพล์ kernel ใหม่ทุกครั้งที่เจอรูปร่าง input ใหม่ ครั้งแรก ~10-20 วินาที จึง pad ให้รูปร่างเดียวและ warm-up ตอนเปิด)
 
 เอกสารประกอบต้นฉบับของครูอยู่ใน [`docs_original/`](docs_original/)
