@@ -34,8 +34,23 @@ TITLES = {f: t.splitlines()[0].lstrip("# ").split(" อาการ")[0].split("
 SYSTEMS = ("baseline", "improved", "jev")
 
 base = imp = None
-lock = threading.Lock()  # ponytail: ประมวลผลทีละคำขอ พอสำหรับ demo ในห้อง; ถ้าคนใช้พร้อมกันเยอะค่อยทำ queue
+lock = threading.Lock()  # ค้นทีละคำถาม (โมเดลบน CPU/GPU ชุดเดียว)
+llm_slots = threading.BoundedSemaphore(2)  # Gemma free tier ~16k token/นาที — ตอบพร้อมกันได้ทีละ 2
+waiting = {"search": 0, "answer": 0}  # ponytail: นับแบบหยาบ ๆ ไว้โชว์คิวบนหน้าเว็บ ไม่ได้ใช้ตัดสินอะไร
 cache, answers = {}, {}
+
+
+@contextlib.contextmanager
+def queued(kind, gate):
+    waiting[kind] += 1
+    try:
+        gate.acquire()
+    finally:
+        waiting[kind] -= 1
+    try:
+        yield
+    finally:
+        gate.release()
 
 
 def source_of(text):  # index ของระบบเดิมไม่ได้เก็บชื่อไฟล์ — หาจากเนื้อหา
@@ -76,14 +91,19 @@ def compare(q, ev=()):
 def answer(q, system):
     if (q, system) not in answers:
         _, top, kept = compare(q)
-        if system == "baseline":
-            with contextlib.redirect_stdout(io.StringIO()):
-                answers[(q, system)] = base.search_for_question(q, k=5)["answer"]
-        elif system == "jev" and kept is None:
+        if system == "jev" and kept is None:
             return "Jev offline — ยังเชื่อมต่อ JEV-9B ไม่ได้"
-        else:
-            answers[(q, system)] = imp.generate(q, top if system == "improved" else kept)
+        with queued("answer", llm_slots):
+            if (q, system) not in answers:
+                answers[(q, system)] = _answer(q, system, top, kept)
     return answers[(q, system)]
+
+
+def _answer(q, system, top, kept):
+    if system == "baseline":
+        with contextlib.redirect_stdout(io.StringIO()):
+            return base.search_for_question(q, k=5)["answer"]
+    return imp.generate(q, top if system == "improved" else kept)
 
 
 def build(showcase):
@@ -114,6 +134,11 @@ def evidence_for(q):
 @app.get("/api/health")
 def health():
     return {"live": True}
+
+
+@app.get("/api/status")
+def status():
+    return waiting
 
 
 @app.post("/api/compare")

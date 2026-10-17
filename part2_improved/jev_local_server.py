@@ -3,6 +3,7 @@
 รันใน Linux/WSL ที่มี GPU (ทดสอบบน RX 7800 XT 16GB + ROCm) แล้วให้ improvedRAG.py เรียกผ่าน HTTP:
   hf download autotrust/JEV-9B --local-dir ~/models/JEV-9B --include "*.json" "*.jinja" "model-*.safetensors" "head.safetensors" "adapter/*"
   python jev_local_server.py ~/models/JEV-9B      # POST /score {"query": "...", "documents": ["...", ...]}
+  RERANKER=~/models/bge-reranker-v2-m3 ...       # + POST /rerank (bge-reranker-v2-m3 fp16 บน GPU ตัวเดียวกัน)
 
 ทำแบบเดียวกับ jev-reranker (hotchpotch) โหมด pointwise: ถาม Jev ทีละเอกสารด้วย instruction + criteria ชุดเดียวกับ
 ไลบรารี แล้วใช้ P(true) เป็นคะแนน 0-1 (ฝั่งเรียกใช้กรองที่ threshold 0.2 เหมือนค่า default ของไลบรารี)
@@ -19,7 +20,7 @@ from accelerate.hooks import remove_hook_from_module
 from safetensors import safe_open
 from safetensors.torch import load_file
 import transformers.modeling_utils
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoModelForSequenceClassification, AutoTokenizer
 
 # คัดลอกจาก jev_reranker/instructions.py (POINTWISE_RELEVANCE_INSTRUCTION)
 INSTRUCTION = ("How useful is the document for answering the query? Score this document independently using only the "
@@ -70,10 +71,30 @@ def p_true(query, document):
     return torch.softmax(((W @ h + b) / T)[s:e], 0)[1].item()
 
 
+# bge-reranker บน GPU (fp16 ~1.1 GB ลงที่ว่างที่เหลือจาก JEV-9B ได้) — บน CPU ใช้ ~9 วินาที/20 คู่ บน GPU ไม่ถึงวินาที
+# ponytail: fp16 ให้คะแนนต่างจาก fp32 ในทศนิยมท้าย ๆ; ลำดับแทบไม่เปลี่ยน
+rr_path = os.environ.get("RERANKER")
+if rr_path:
+    rr_tok = AutoTokenizer.from_pretrained(rr_path)
+    rr = AutoModelForSequenceClassification.from_pretrained(rr_path, dtype=torch.float16).cuda().eval()
+
+
+@torch.no_grad()
+def rerank(query, documents):
+    # pad เป็น 512 เสมอ: ROCm คอมไพล์ kernel ใหม่ทุกครั้งที่เจอความยาวใหม่ (ครั้งแรก ~10-20 วินาที)
+    x = rr_tok([query] * len(documents), documents, padding="max_length", truncation=True, max_length=512,
+               return_tensors="pt").to("cuda")
+    return rr(**x).logits.view(-1).float().tolist()
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        body = json.dumps({"scores": [p_true(req["query"], d) for d in req["documents"]]}).encode()
+        if self.path == "/rerank" and rr_path:
+            scores = rerank(req["query"], req["documents"])
+        else:
+            scores = [p_true(req["query"], d) for d in req["documents"]]
+        body = json.dumps({"scores": scores}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -81,6 +102,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if rr_path:
+        for n in (20, 5):  # warm-up shape ที่ใช้จริง (top-20 จาก RRF)
+            rerank("warm up", ["x"] * n)
     print("smoke:", round(p_true("หัดเยอรมันเกิดจากเชื้ออะไร", "โรคหัดเยอรมันเกิดจากการติดเชื้อไวรัสหัดเยอรมัน (Rubella virus)"), 3),
           round(p_true("หัดเยอรมันเกิดจากเชื้ออะไร", "ต้อกระจกคือภาวะที่เลนส์ตาขุ่นมัว"), 3), flush=True)
     HTTPServer(("0.0.0.0", 8766), Handler).serve_forever()

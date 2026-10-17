@@ -108,6 +108,14 @@ mark.hl.static { background-size: 100% 78%; animation: none; }
 .chip:hover { border-color: var(--ink); background: var(--card); }
 .chip.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .error { color: var(--red); font-weight: 600; }
+.queue { margin: 14px 0 0; color: var(--teal); font-weight: 600; }
+.qr-btn { font: inherit; font-size: 0.82rem; font-weight: 600; text-transform: none; letter-spacing: 0; background: var(--ink); color: var(--paper); border: 0; padding: 5px 14px; border-radius: 99px; cursor: pointer; margin-left: auto; }
+.qr-btn + .pill { margin-left: 0; }
+.qr-overlay { position: fixed; inset: 0; z-index: 10; background: #1d1b17e6; display: grid; place-items: center; cursor: zoom-out; animation: rise 0.25s both; }
+.qr-card { background: var(--card); padding: 28px 28px 22px; text-align: center; box-shadow: 10px 10px 0 var(--teal); }
+.qr-card img { width: min(70vh, 80vw); height: auto; display: block; image-rendering: pixelated; }
+.qr-card p { font-family: var(--serif); font-weight: 700; font-size: 1.6rem; margin: 14px 0 4px; }
+.qr-card code { font-family: var(--mono); font-size: 1.3rem; color: var(--teal); }
 
 /* ---------- dossier ---------- */
 .dossier { padding-top: 22px; }

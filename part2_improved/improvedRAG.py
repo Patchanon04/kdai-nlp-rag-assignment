@@ -34,6 +34,7 @@ CORPUS = ["1.md", "2.md", "44.md", "5555.md"]
 CONTEXT_CACHE = ROOT / "results" / "improved_contexts.json"
 MAX_CHARS = 800
 JEV_URL = os.environ.get("JEV_URL", "http://localhost:8766/score")
+RERANK_URL = os.environ.get("RERANK_URL")  # ไม่ตั้ง = รัน bge-reranker บน CPU
 
 
 # ---------------------------------------------------------------- 1. chunking
@@ -181,8 +182,19 @@ class ImprovedRAG:
                 docs[doc_id] = src
         return [(d, docs[d]) for d in sorted(scores, key=scores.get, reverse=True)]
 
+    def rerank_scores(self, q, cands):
+        docs = [f"{s['breadcrumb']}\n{s['content']}" for _, s in cands]
+        if RERANK_URL:  # bge-reranker ตัวเดียวกันบน GPU (jev_local_server.py /rerank) — เร็วกว่า CPU ~10 เท่า
+            try:
+                req = urllib.request.Request(RERANK_URL, data=json.dumps({"query": q, "documents": docs}).encode(),
+                                             headers={"Content-Type": "application/json"})
+                return json.loads(urllib.request.urlopen(req, timeout=60).read())["scores"]
+            except Exception as e:
+                print("GPU rerank unavailable, using CPU:", e, flush=True)
+        return self.reranker.predict([(q, d) for d in docs]).tolist()
+
     def rerank(self, q, cands):
-        scores = self.reranker.predict([(q, f"{s['breadcrumb']}\n{s['content']}") for _, s in cands])
+        scores = self.rerank_scores(q, cands)
         return [c for _, c in sorted(zip(scores, cands), key=lambda x: -x[0])]
 
     def llm_filter(self, q, cands, threshold=0.2):
