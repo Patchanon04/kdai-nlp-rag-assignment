@@ -66,11 +66,13 @@ def compare(q, ev=()):
     """ผลค้นหาของ 3 ระบบ (ไม่รวมคำตอบ LLM) + hits ที่ใช้สร้างคำตอบ"""
     if q in cache:
         return cache[q]
-    with lock:
+    with queued("search", lock):
+        if q in cache:  # มีคนถามข้อเดียวกันขณะรอคิว
+            return cache[q]
         with contextlib.redirect_stdout(io.StringIO()):
             b = base.hybrid_search(q, 5)
         fused = imp.rrf([imp.bm25(q), imp.dense(q)])[:20]
-        rr = imp.reranker.predict([(q, f"{s['breadcrumb']}\n{s['content']}") for _, s in fused])
+        rr = imp.rerank_scores(q, fused)
         top = sorted(zip(rr, fused), key=lambda x: -x[0])[:5]
         try:
             jev = [round(p, 4) for p in imp.jev_scores(q, [c for _, c in top])]
