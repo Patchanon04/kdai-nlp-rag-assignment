@@ -81,10 +81,16 @@ if rr_path:
 
 @torch.no_grad()
 def rerank(query, documents):
-    # pad เป็น 512 เสมอ: ROCm คอมไพล์ kernel ใหม่ทุกครั้งที่เจอความยาวใหม่ (ครั้งแรก ~10-20 วินาที)
-    x = rr_tok([query] * len(documents), documents, padding="max_length", truncation=True, max_length=512,
-               return_tensors="pt").to("cuda")
-    return rr(**x).logits.view(-1).float().tolist()
+    # รูปร่างคงที่ (5 คู่ × 512 token): ROCm คอมไพล์ kernel ใหม่ทุกครั้งที่เจอรูปร่างใหม่ (ครั้งแรก ~10-20 วินาที)
+    # และทีละ 5 เพื่อให้ activation ลงที่ว่างที่เหลือข้าง JEV-9B ได้ (20 คู่ในก้อนเดียว OOM)
+    out = []
+    for i in range(0, len(documents), 5):
+        docs = documents[i:i + 5]
+        docs += [""] * (5 - len(docs))
+        x = rr_tok([query] * 5, docs, padding="max_length", truncation=True, max_length=512,
+                   return_tensors="pt").to("cuda")
+        out += rr(**x).logits.view(-1).float().tolist()[:len(documents) - i]
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -103,8 +109,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     if rr_path:
-        for n in (20, 5):  # warm-up shape ที่ใช้จริง (top-20 จาก RRF)
-            rerank("warm up", ["x"] * n)
+        rerank("warm up", ["x"] * 5)  # คอมไพล์ kernel ของรูปร่างเดียวที่ใช้ไว้ก่อน
     print("smoke:", round(p_true("หัดเยอรมันเกิดจากเชื้ออะไร", "โรคหัดเยอรมันเกิดจากการติดเชื้อไวรัสหัดเยอรมัน (Rubella virus)"), 3),
           round(p_true("หัดเยอรมันเกิดจากเชื้ออะไร", "ต้อกระจกคือภาวะที่เลนส์ตาขุ่นมัว"), 3), flush=True)
     HTTPServer(("0.0.0.0", 8766), Handler).serve_forever()
